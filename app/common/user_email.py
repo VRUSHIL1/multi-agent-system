@@ -2,7 +2,7 @@ import smtplib
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 
-from app.common.settings import settings
+from app.common import settings
 
 
 def send_email(to_email: str, code: str) -> None:

@@ -30,11 +30,25 @@ class GeminiAgent:
         # Planner → Executor LangGraph pipeline
         self.agent = build_agent_graph(llm=self.llm, tools=self.tools)
 
-    async def generate_response(self, message: str, session_id: int) -> str:
+    async def generate_response(self, message: str, session_id: int, summary: str = "", memory_context: str = "") -> str:
         logger.info("📩 User message | session=%s | message=%s", session_id, message)
+        
+        # Prepare messages with context using proper LangChain message types
+        messages = []
+        
+        # Add summary context if available
+        if summary:
+            messages.append(HumanMessage(content=f"Previous conversation summary: {summary}"))
+        
+        # Add memory context if available
+        if memory_context:
+            messages.append(HumanMessage(content=f"Relevant memories:\n{memory_context}"))
+        
+        # Add the actual user message
+        messages.append(HumanMessage(content=message))
 
         result = await self.agent.ainvoke(
-            {"messages": [{"role": "user", "content": message}]},
+            {"messages": messages},
             config={"configurable": {"thread_id": str(session_id)}},
         )
 

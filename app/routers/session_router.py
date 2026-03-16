@@ -5,9 +5,9 @@ from fastapi.responses import JSONResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 from typing import Annotated
 from app.database import get_db
-from app.controllers.session_controller import SessionController
-from app.validation.session_validation import SessionCreate
-from app.utils.middleware import get_current_user, CurrentUser
+from app.controllers import SessionController
+from app.validation import SessionCreate
+from app.utils import get_current_user, CurrentUser
 
 router = APIRouter(prefix="/sessions", tags=["sessions"])
 

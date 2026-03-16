@@ -10,8 +10,8 @@ from fastapi import BackgroundTasks, UploadFile
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.model import Document
-from app.validation.document_validation import DocumentUploadResponse
-from app.services.pdf_service import PDFEmbeddingService, get_pdf_service
+from app.validation import DocumentUploadResponse
+from app.services import get_pdf_service
 
 logger = logging.getLogger(__name__)
 

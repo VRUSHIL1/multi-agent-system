@@ -7,7 +7,7 @@ from langchain_core.messages import HumanMessage, SystemMessage
 from langchain_google_genai import ChatGoogleGenerativeAI
 
 from app.agents.state import AgentState
-from app.prompts.planner_prompt import PLANNER_PROMPT
+from app.prompts import PLANNER_PROMPT
 
 logger = logging.getLogger(__name__)
 

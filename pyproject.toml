@@ -30,4 +30,5 @@ dependencies = [
     "sqlalchemy>=2.0.48",
     "uvicorn[standard]>=0.41.0",
     "pymupdf>=1.27.2",
+    "mem0ai>=1.0.5",
 ]

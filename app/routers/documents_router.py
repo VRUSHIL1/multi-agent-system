@@ -4,7 +4,7 @@ from fastapi import APIRouter, BackgroundTasks, Depends, File, Form, UploadFile,
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
-from app.validation.document_validation import DocumentUploadResponse
+from app.validation import DocumentUploadResponse
 from app.controllers import DocumentController
 
 router = APIRouter(prefix="/documents", tags=["documents"])

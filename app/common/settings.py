@@ -83,6 +83,10 @@ class Settings:
     def secret_key(self) -> str:
         return self._require("SECRET_KEY")
 
+    @property
+    def mem0_api_key(self) -> str:
+        return self._require("MEM0_API_KEY")
+
     
 
     

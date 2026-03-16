@@ -7,7 +7,7 @@ from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from jose import JWTError, jwt
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.common.settings import settings
+from app.common import settings
 from app.database import get_db
 
 logger = logging.getLogger(__name__)

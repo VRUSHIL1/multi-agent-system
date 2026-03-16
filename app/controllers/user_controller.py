@@ -2,7 +2,7 @@ from fastapi import BackgroundTasks
 from fastapi.responses import JSONResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.common.responses import ErrorResponse, success_response
+from app.common import ErrorResponse, success_response
 from app.common import send_email
 from app.services import UserService
 from app.validation import (

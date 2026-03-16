@@ -4,8 +4,8 @@ from uuid import UUID
 
 from fastapi import BackgroundTasks, UploadFile
 from sqlalchemy.ext.asyncio import AsyncSession
-from app.services.documents_service import DocumentService
-from app.validation.document_validation import DocumentUploadResponse
+from app.services import DocumentService
+from app.validation import DocumentUploadResponse
 
 class DocumentController:
     @staticmethod

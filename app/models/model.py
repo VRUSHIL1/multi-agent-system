@@ -1,8 +1,8 @@
-﻿from __future__ import annotations
+from __future__ import annotations
 
 from datetime import datetime
 
-from sqlalchemy import DateTime, ForeignKey, Integer, String, Text, func, TIMESTAMP
+from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, String, Text, func, TIMESTAMP
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.database import Base
@@ -46,6 +46,11 @@ class ChatSession(Base):
         back_populates="session",
         cascade="all, delete-orphan",
     )
+    summaries: Mapped[list["ChatSummary"]] = relationship(
+        back_populates="session",
+        cascade="all, delete-orphan",
+        order_by="ChatSummary.created_at",
+    )
 
 
 class ChatMessage(Base):
@@ -55,6 +60,7 @@ class ChatMessage(Base):
     session_id: Mapped[int] = mapped_column(Integer, ForeignKey("chat_sessions.id"))
     role: Mapped[str] = mapped_column(String(32))
     content: Mapped[str] = mapped_column(Text)
+    is_summarized: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default="false", default=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
     session: Mapped[ChatSession] = relationship(back_populates="messages")
@@ -75,3 +81,14 @@ class Document(Base):
     uploaded_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
     session: Mapped[ChatSession | None] = relationship(back_populates="documents")
+
+
+class ChatSummary(Base):
+    __tablename__ = "chat_summaries"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    session_id: Mapped[int] = mapped_column(Integer, ForeignKey("chat_sessions.id"), nullable=False)
+    summary: Mapped[str] = mapped_column(Text, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+    session: Mapped[ChatSession] = relationship(back_populates="summaries")

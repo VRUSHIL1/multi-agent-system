@@ -7,7 +7,7 @@ from langchain_core.tools import BaseTool
 from langchain_google_genai import ChatGoogleGenerativeAI
 
 from app.agents.state import AgentState
-from app.prompts.executor_prompt import EXECUTOR_PROMPT
+from app.prompts import EXECUTOR_PROMPT
 
 logger = logging.getLogger(__name__)
 
