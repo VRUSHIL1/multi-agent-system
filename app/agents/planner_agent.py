@@ -36,7 +36,10 @@ class PlannerAgent:
         prompt = PLANNER_PROMPT.format(user_message=user_message)
 
         response = await self.llm.ainvoke(
-            [SystemMessage(content=prompt)]
+            [
+                SystemMessage(content=prompt),
+                HumanMessage(content=user_message),
+            ]
         )
 
         raw_plan = response.content if isinstance(response.content, str) else str(response.content)
