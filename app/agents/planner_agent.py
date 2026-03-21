@@ -4,6 +4,7 @@ import logging
 import re
 
 from langchain_core.messages import HumanMessage, SystemMessage
+from langchain_core.tools import BaseTool
 from langchain_google_genai import ChatGoogleGenerativeAI
 
 from app.agents.state import AgentState
@@ -20,8 +21,9 @@ class PlannerAgent:
     a numbered step-by-step plan, and stores the plan back in state.
     """
 
-    def __init__(self, llm: ChatGoogleGenerativeAI) -> None:
+    def __init__(self, llm: ChatGoogleGenerativeAI, tools: list[BaseTool]) -> None:
         self.llm = llm
+        self.tools = tools
 
     async def run(self, state: AgentState) -> dict:
         # Extract the most recent human message
@@ -33,7 +35,15 @@ class PlannerAgent:
 
         logger.info("🗂️  Planner | analysing: %s", user_message[:200])
 
-        prompt = PLANNER_PROMPT.format(user_message=user_message)
+        tool_list = "\n".join(
+            f"- {tool.name}: {tool.description}"
+            for tool in self.tools
+        )
+
+        prompt = PLANNER_PROMPT.format(
+            user_message=user_message,
+            tool_list=tool_list
+        )
 
         response = await self.llm.ainvoke(
             [

@@ -7,12 +7,14 @@ from langchain_google_genai import ChatGoogleGenerativeAI
 
 from app.agents.graph import build_agent_graph
 from app.common.settings import settings
-from app.tools import get_langchain_tools
+from app.tools import get_langchain_tools, get_mcp_langchain_tools
 
 logger = logging.getLogger(__name__)
 
 
 class GeminiAgent:
+    """Main LLM agent using Gemini + LangGraph."""
+
     def __init__(self, *, model_name: str | None = None) -> None:
         if not settings.gemini_api_key:
             raise RuntimeError("Gemini API key not configured")
@@ -22,29 +24,66 @@ class GeminiAgent:
         self.llm = ChatGoogleGenerativeAI(
             model=self.model_name,
             google_api_key=settings.gemini_api_key,
-            temperature=0.7,
+            temperature=0.5,
         )
 
-        self.tools = get_langchain_tools()
+        self.tools = []
+        self.agent = None
 
-        # Planner → Executor LangGraph pipeline
-        self.agent = build_agent_graph(llm=self.llm, tools=self.tools)
+    async def initialize(self) -> None:
+        """Initialize tools and build the agent graph."""
 
-    async def generate_response(self, message: str, session_id: int, summary: str = "", memory_context: str = "") -> str:
-        logger.info("📩 User message | session=%s | message=%s", session_id, message)
-        
-        # Prepare messages with context using proper LangChain message types
+        local_tools = get_langchain_tools()
+        mcp_tools = await get_mcp_langchain_tools()
+
+        self.tools = [*local_tools, *mcp_tools]
+
+        logger.info(
+            "🧰 Tools loaded | local=%d | mcp=%d",
+            len(local_tools),
+            len(mcp_tools),
+        )
+
+        self.agent = build_agent_graph(
+            llm=self.llm,
+            tools=self.tools,
+        )
+
+        logger.info("🕸️ Agent graph initialized")
+
+    async def generate_response(
+        self,
+        message: str,
+        session_id: int,
+        summary: str = "",
+        memory_context: str = "",
+    ) -> str:
+
+        if not self.agent:
+            raise RuntimeError("Agent not initialized. Call initialize() first.")
+
+        logger.info(
+            "📩 User message | session=%s | message=%s",
+            session_id,
+            message,
+        )
+
         messages = []
-        
-        # Add summary context if available
+
         if summary:
-            messages.append(HumanMessage(content=f"Previous conversation summary: {summary}"))
-        
-        # Add memory context if available
+            messages.append(
+                HumanMessage(
+                    content=f"Previous conversation summary:\n{summary}"
+                )
+            )
+
         if memory_context:
-            messages.append(HumanMessage(content=f"Relevant memories:\n{memory_context}"))
-        
-        # Add the actual user message
+            messages.append(
+                HumanMessage(
+                    content=f"Relevant memories:\n{memory_context}"
+                )
+            )
+
         messages.append(HumanMessage(content=message))
 
         result = await self.agent.ainvoke(
@@ -52,26 +91,32 @@ class GeminiAgent:
             config={"configurable": {"thread_id": str(session_id)}},
         )
 
-        # Log full agent reasoning chain
+        # Log agent reasoning
         for msg in result["messages"]:
+
             if isinstance(msg, HumanMessage):
-                continue  # already logged above
+                continue
 
             if isinstance(msg, AIMessage):
+
                 if msg.content:
                     text = msg.content
+
                     if isinstance(text, list):
                         text = " ".join(
-                            p.get("text", "") for p in text if isinstance(p, dict)
+                            part.get("text", "")
+                            for part in text
+                            if isinstance(part, dict)
                         )
+
                     logger.info("🧠 AI thinking: %s", text[:500])
 
                 if msg.tool_calls:
-                    for tc in msg.tool_calls:
+                    for call in msg.tool_calls:
                         logger.info(
-                            "🔧 Tool call: %s | args: %s",
-                            tc.get("name", "unknown"),
-                            tc.get("args", {}),
+                            "🔧 Tool call: %s | args=%s",
+                            call.get("name"),
+                            call.get("args"),
                         )
 
             elif isinstance(msg, ToolMessage):
@@ -81,16 +126,25 @@ class GeminiAgent:
                     str(msg.content)[:500],
                 )
 
-        # Prefer the dedicated `response` field set by the executor;
-        # fall back to the last AI message content for safety
-        content: str = result.get("response", "")
-        if not content:
-            last = result["messages"][-1].content
-            content = (
-                " ".join(p.get("text", "") for p in last if isinstance(p, dict))
-                if isinstance(last, list)
-                else str(last)
-            )
+        # Final response
+        response = result.get("response")
 
-        logger.info("✅ Final response | session=%s | length=%d", session_id, len(content))
-        return content
+        if not response:
+            last = result["messages"][-1].content
+
+            if isinstance(last, list):
+                response = " ".join(
+                    part.get("text", "")
+                    for part in last
+                    if isinstance(part, dict)
+                )
+            else:
+                response = str(last)
+
+        logger.info(
+            "✅ Final response | session=%s | length=%d",
+            session_id,
+            len(response),
+        )
+
+        return response

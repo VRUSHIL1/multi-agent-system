@@ -69,7 +69,7 @@ class ExecutorAgent:
                     logger.warning("⚠️  Executor | unknown tool: %s", tool_name)
                 else:
                     try:
-                        result = tool.run(tool_args)
+                        result = await tool.ainvoke(tool_args)
                     except Exception as exc:
                         result = f"Tool '{tool_name}' failed: {exc}"
                         logger.error("❌ Executor | tool error: %s", exc)

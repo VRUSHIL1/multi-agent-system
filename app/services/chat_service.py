@@ -51,6 +51,7 @@ class ChatService:
 
         try:
             agent = GeminiAgent()
+            await agent.initialize()
             response_text = await agent.generate_response(
                 request.message, 
                 session_id=session.id, 

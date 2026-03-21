@@ -33,7 +33,7 @@ def build_agent_graph(
     Returns:
         A compiled LangGraph application (CompiledGraph).
     """
-    planner = PlannerAgent(llm=llm)
+    planner = PlannerAgent(llm=llm, tools=tools)
     executor = ExecutorAgent(llm=llm, tools=tools)
 
     graph = StateGraph(AgentState)

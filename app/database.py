@@ -54,7 +54,21 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     except Exception as exc:
         logger.warning("⚠️ Embedding model failed to load at startup | error=%s", exc)
 
+    # Initialize MCP client
+    from app.mcp.client import mcp_client
+    try:
+        await mcp_client.connect_all()
+        logger.info("✅ MCP client initialized successfully")
+    except Exception as exc:
+        logger.warning("⚠️ MCP client failed to initialize | error=%s", exc)
+
     yield
+
+    # Cleanup MCP connections
+    try:
+        await mcp_client.cleanup()
+    except Exception as exc:
+        logger.warning("⚠️ MCP cleanup failed | error=%s", exc)
 
     engine = get_engine()
     await engine.dispose()
