@@ -1,401 +1,358 @@
-# AI Agent Chatbot - Production Ready
+# AI Chat Agent — Dynamic Multi-Agent System
 
-## Overview
+A production-grade AI chatbot built with **FastAPI** and **LangGraph** that uses a dynamic multi-agent loop to plan and execute complex tasks step by step. Powered by **Google Gemini 2.5 Flash**, it supports document Q&A, web search, email dispatch, WhatsApp, YouTube, and any external tool via the **Model Context Protocol (MCP)**.
 
-A sophisticated AI-powered chatbot built with FastAPI that combines multiple AI capabilities including conversational AI, document processing, web search, and email functionality. The system uses Google's Gemini 2.5 Flash model as the core AI agent with persistent conversation storage and advanced document embedding capabilities.
+---
 
-### Key Features
+## Architecture
 
-- **AI Agent Integration**: Powered by Google Gemini 2.5 Flash for intelligent conversations
-- **Persistent Storage**: PostgreSQL database for session and message history
-- **Document Processing**: PDF upload and embedding with FAISS vector search
-- **Web Search**: Integrated search capabilities via Tavily or Serper APIs
-- **Email Integration**: SMTP support for sending emails through the agent
-- **Session Management**: Multi-session support with conversation history
-- **RESTful API**: FastAPI-based backend with automatic OpenAPI documentation
-- **MCP Client**: Model Context Protocol integration for extended capabilities
-
-### Architecture
+The system routes every incoming message through a four-node LangGraph pipeline:
 
 ```
-┌─────────────────┐    ┌─────────────────┐    ┌─────────────────┐
-│   Frontend      │    │   FastAPI       │    │   PostgreSQL   │
-│   Client        │◄──►│   Backend       │◄──►│   Database      │
-└─────────────────┘    └─────────────────┘    └─────────────────┘
-                              │
-                              ▼
-                       ┌─────────────────┐
-                       │   AI Services   │
-                       │                 │
-                       │ • Gemini 2.5    │
-                       │ • FAISS Vector  │
-                       │ • Search APIs   │
-                       │ • SMTP Email    │
-                       └─────────────────┘
+User Message
+     |
+     v
+SUPERVISOR AGENT
+  - Validates session
+  - Fetches conversation summary
+  - Retrieves relevant Mem0 memories
+  - Invokes LangGraph
+     |
+     v
+ORCHESTRATOR AGENT
+  - Decides route: DIRECT / TOOL / PLANNER
+     |
+     +---> DIRECT (simple Q&A, no tools needed)
+     |          |
+     |          v
+     |        END
+     |
+     +---> TOOL (single, known tool call)
+     |          |
+     |          v
+     |       EXECUTOR --> END
+     |
+     +---> PLANNER (complex multi-step task)
+                |
+                v
+           PLANNER AGENT
+             - Sees accumulated results so far
+             - Generates ONE task at a time
+                |
+                v
+           EXECUTOR AGENT
+             - Runs the tool
+             - Injects placeholders (e.g. {step_1.result})
+             - Appends result to state
+                |
+                +---> loop back to PLANNER (if more steps needed)
+                |
+                +---> END (when Planner responds DONE)
+     |
+     v
+SUPERVISOR AGGREGATION
+  - Synthesizes all results into a final response
 ```
 
-## Prerequisites
+The key design choice is that the **Planner never pre-plans the full sequence**. It sees what has been done so far and decides the single next action, making the loop adaptive to real tool outputs.
 
-- Python 3.8+
-- PostgreSQL 12+
-- Google Gemini API key
-- (Optional) Tavily or Serper API key for web search
-- (Optional) Gmail SMTP credentials for email functionality
+---
 
-## Installation & Setup
+## Features
 
-### 1. Environment Setup
+### Dynamic Task Planning
+- Generates one task per iteration based on accumulated results
+- Supports placeholder injection — `{step_1.result}` in tool args is automatically replaced with the actual output from step 1
+- Detects completion and exits the loop cleanly
+- Hard cap of 20 iterations to prevent runaway loops
 
-Create and activate a Python virtual environment:
+### Dual Memory System
+**Conversation Summarization**
+- Every 10 messages, the last unsummarized chunk is sent to Gemini 2.0 Flash Lite to produce an updated rolling summary
+- Runs in a FastAPI `BackgroundTask` so it never blocks the response
+- Summary is injected into the next request as context
 
-```bash
-# Create virtual environment
-python -m venv .venv
+**Semantic Memory (Mem0)**
+- Stores user messages as vector memories scoped to each session
+- Before each request, retrieves the most relevant past memories and injects them into the prompt
+- Keeps long-term context alive across many sessions without a growing message list
 
-# Activate (Windows)
-.\.venv\Scripts\activate
+### Document Q&A
+- Upload PDF files via the `/documents/upload` endpoint
+- Text is extracted with PyMuPDF, chunked, and embedded using Google Generative AI embeddings
+- Embeddings are stored in per-file FAISS indexes
+- The `search_pdf` tool searches across all uploaded documents at query time and returns ranked chunks
 
-# Activate (macOS/Linux)
-source .venv/bin/activate
-```
+### MCP Tool Integration
+- Connects to any MCP-compatible server at startup via `mcp_server.json`
+- Currently configured servers: **WhatsApp**, **YouTube**, **Database**
+- Tools are loaded once and cached — no subprocess spawned per request
+- Add new external capabilities by editing `mcp_server.json`, no code changes needed
 
-### 2. Install Dependencies
+### Built-in LangChain Tools
+| Tool | Description |
+|------|-------------|
+| `web_search` | Real-time web search via Tavily or Serper |
+| `send_email` | Send plain-text or HTML email via SMTP |
+| `search_pdf` | Semantic search across all uploaded PDFs |
 
-Using pip:
-```bash
-pip install -U pip
-pip install .
-```
+### Orchestrator Guard Rails
+- Blocks empty messages and inputs over 8,000 characters
+- Detects and rejects prompt injection attempts (regex-based)
+- Structured output routing — no brittle JSON regex parsing
+- Retry with exponential backoff on all LLM calls (tenacity)
+- Per-call timeouts (20s routing, 30s aggregation, 30s tool execution)
+- Structured JSON trace logged per request for observability
 
-Using uv (recommended for faster installs):
-```bash
-uv sync
-```
+### Session & User Management
+- JWT-based authentication with password reset flow
+- Multiple chat sessions per user, each with independent context
+- All messages stored in PostgreSQL with `is_summarized` flag for efficient chunking
+- Session-scoped documents and summaries with cascade delete
 
-### 3. Database Setup
+---
 
-Ensure PostgreSQL is running and create the database:
+## Tech Stack
 
-```bash
-# Create database
-createdb chat_agent
+| Layer | Technology |
+|-------|------------|
+| API | FastAPI, Uvicorn |
+| LLM | Google Gemini 2.5 Flash (`langchain-google-genai`) |
+| Agent orchestration | LangGraph, LangChain |
+| Long-term memory | Mem0 |
+| Vector search | FAISS (`faiss-cpu`) |
+| Embeddings | Google Generative AI / sentence-transformers |
+| PDF parsing | PyMuPDF |
+| External tools | MCP (`langchain-mcp-adapters`) |
+| Database | PostgreSQL, SQLAlchemy (async), asyncpg |
+| Migrations | Alembic |
+| Auth | python-jose (JWT), passlib |
+| Retry / resilience | tenacity |
 
-# Or using psql
-psql -U postgres -c "CREATE DATABASE chat_agent;"
-```
+---
 
-### 4. Environment Configuration
+## Project Structure
 
-Create a `.env` file in the project root with the following configuration:
-
-```env
-# Database Configuration
-DATABASE_URL=postgresql+asyncpg://username:password@localhost:5432/chat_agent
-
-# AI Model Configuration
-GEMINI_API_KEY=your_gemini_api_key_here
-GEMINI_MODEL=gemini-2.5-flash
-
-# Email Configuration (Optional)
-SMTP_HOST=smtp.gmail.com
-SMTP_PORT=587
-SMTP_USERNAME=your_email@gmail.com
-SMTP_PASSWORD=your_app_password
-SMTP_FROM=your_email@gmail.com
-
-# Security
-SECRET_KEY=your_secret_key_here
-
-# Search Provider Configuration (Optional)
-SEARCH_PROVIDER=tavily  # or 'serpapi'
-TAVILY_API_KEY=your_tavily_api_key
-SERPER_API_KEY=your_serper_api_key
-
-# PDF Processing Configuration
-PDF_INDEX_DIR=./data/faiss
-PDF_CHUNK_SIZE=1000
-PDF_CHUNK_OVERLAP=200
-
-# CORS Configuration (Optional)
-ALLOWED_ORIGINS=http://localhost:3000,http://localhost:8080
-```
-
-#### Configuration Details
-
-**Database URL Format:**
-- `postgresql+asyncpg://user:password@host:port/database`
-- Use `asyncpg` driver for optimal async performance
-
-**Gemini API Key:**
-- Obtain from [Google AI Studio](https://makersuite.google.com/app/apikey)
-- Supports Gemini 2.5 Flash model for fast responses
-
-**Email Configuration:**
-- For Gmail, use App Passwords instead of regular password
-- Enable 2FA and generate App Password in Google Account settings
-
-**Search Providers:**
-- **Tavily**: Better for general web search, get key from [Tavily](https://tavily.com)
-- **Serper**: Good for Google search results, get key from [Serper](https://serper.dev)
-
-### 5. Database Migration
-
-The application automatically creates tables on startup. For manual migration control:
-
-```bash
-# Generate migration
-alembic revision --autogenerate -m "Initial migration"
-
-# Apply migration
-alembic upgrade head
-```
-
-### 6. Start the Application
-
-```bash
-# Production mode
-python main.py
-
-# Development mode with auto-reload
-uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
-```
-
-The API will be available at:
-- **API Documentation**: http://localhost:8000/docs
-- **Alternative Docs**: http://localhost:8000/redoc
-- **Health Check**: http://localhost:8000/health
-
-## API Reference
-
-### Core Endpoints
-
-#### Chat Operations
-```http
-POST /api/chat/
-Content-Type: application/json
-
-{
-  "message": "Hello, how can you help me?",
-  "session_id": "optional-session-id"
-}
-```
-
-#### Session Management
-```http
-# Create new session
-POST /api/sessions/
-{
-  "name": "My Chat Session"
-}
-
-# List all sessions
-GET /api/sessions/
-
-# Get specific session with messages
-GET /api/sessions/{session_id}
-
-# Delete session
-DELETE /api/sessions/{session_id}
-```
-
-#### Document Operations
-```http
-# Upload PDF document
-POST /api/documents/upload
-Content-Type: multipart/form-data
-
-file: [PDF file]
-session_id: optional-session-id
-
-# List uploaded documents
-GET /api/documents/
-
-# Search documents
-POST /api/documents/search
-{
-  "query": "search terms",
-  "limit": 5
-}
-```
-
-### Response Formats
-
-**Chat Response:**
-```json
-{
-  "response": "AI agent response text",
-  "session_id": "session-uuid",
-  "message_id": "message-uuid",
-  "timestamp": "2024-01-01T12:00:00Z",
-  "tools_used": ["search", "email"]
-}
-```
-
-**Error Response:**
-```json
-{
-  "detail": "Error description",
-  "error_code": "VALIDATION_ERROR",
-  "timestamp": "2024-01-01T12:00:00Z"
-}
-```
-
-## Agent Capabilities
-
-### 1. Conversational AI
-- Natural language understanding and generation
-- Context-aware responses based on conversation history
-- Multi-turn conversations with memory
-
-### 2. Web Search Integration
-- Real-time web search capabilities
-- Summarization of search results
-- Source attribution and links
-
-### 3. Email Functionality
-- Send emails through SMTP
-- Support for HTML and plain text emails
-- Attachment support
-
-### 4. Document Processing
-- PDF upload and text extraction
-- Automatic chunking and embedding
-- Vector similarity search with FAISS
-- Document-based question answering
-
-### 5. Session Management
-- Persistent conversation history
-- Multiple concurrent sessions
-- Session-based context isolation
-
-## Development
-
-### Project Structure
 ```
 chat-agent/
 ├── app/
-│   ├── __init__.py
-│   ├── main.py              # FastAPI application
-│   ├── config.py            # Configuration management
-│   ├── database.py          # Database connection
-│   ├── models/              # SQLAlchemy models
-│   ├── schemas/             # Pydantic schemas
-│   ├── api/                 # API routes
-│   ├── services/            # Business logic
-│   └── agents/              # AI agent implementations
-├── data/
-│   └── faiss/               # FAISS vector indices
-├── alembic/                 # Database migrations
-├── tests/                   # Test files
-├── .env                     # Environment variables
-├── pyproject.toml           # Project configuration
-└── README.md
+│   ├── agents/
+│   │   ├── graph.py               # LangGraph definition and routing logic
+│   │   ├── orchestrator_agent.py  # Entry point — routes DIRECT / TOOL / PLANNER
+│   │   ├── planner_agent.py       # Generates one task per iteration
+│   │   ├── executor_agent.py      # Executes tools with retry + placeholder injection
+│   │   ├── supervisor_agent.py    # Initializes graph, aggregates final response
+│   │   └── state.py               # Shared AgentState TypedDict
+│   ├── services/
+│   │   ├── chat_service.py        # Orchestrates memory, agent, and DB writes
+│   │   ├── summary_service.py     # Rolling summarization every 10 messages
+│   │   ├── mem0_service.py        # Mem0 add / search wrappers
+│   │   ├── pdf_embedding_service.py  # PDF chunking, embedding, FAISS indexing
+│   │   └── email_service.py       # SMTP email dispatch
+│   ├── tools/
+│   │   ├── langchain_tools.py     # EmailTool, SearchTool, PDFSearchTool
+│   │   └── mcp_tools.py           # Loads MCP tools as LangChain BaseTool instances
+│   ├── mcp/
+│   │   ├── client.py              # MCPClient — connects, caches, and calls MCP servers
+│   │   └── mcp_server.json        # MCP server config (WhatsApp, YouTube, Database)
+│   ├── models/
+│   │   └── model.py               # SQLAlchemy models: User, ChatSession, ChatMessage,
+│   │                              #   Document, ChatSummary
+│   ├── routers/                   # FastAPI route definitions
+│   ├── controllers/               # Request handlers
+│   ├── validation/                # Pydantic request/response schemas
+│   ├── prompts/                   # All LLM system prompts
+│   ├── database.py                # Async engine, session factory, lifespan hook
+│   ├── main.py                    # FastAPI app setup
+│   └── common/                   # Settings, shared utilities
+├── alembic/                       # Database migrations
+├── pyproject.toml
+└── .env
 ```
 
-### Running Tests
+---
+
+## Setup
+
+### Prerequisites
+- Python 3.13+
+- PostgreSQL 12+
+- Google Gemini API key
+- (Optional) Tavily or Serper API key for web search
+- (Optional) Gmail SMTP credentials for the email tool
+- (Optional) Mem0 API key for semantic memory
+
+### Install
+
 ```bash
-# Install test dependencies
-pip install -e ".[test]"
+python -m venv .venv
 
-# Run tests
-pytest
+# Windows
+.\.venv\Scripts\activate
 
-# Run with coverage
-pytest --cov=app
+# macOS / Linux
+source .venv/bin/activate
+
+pip install -e .
 ```
 
-### Code Quality
-```bash
-# Format code
-black app/
+### Environment
 
-# Lint code
-flake8 app/
+Create a `.env` file in the project root:
 
-# Type checking
-mypy app/
-```
-
-## Deployment
-
-### Docker Deployment
-```dockerfile
-# Dockerfile example
-FROM python:3.11-slim
-
-WORKDIR /app
-COPY . .
-RUN pip install .
-
-EXPOSE 8000
-CMD ["python", "main.py"]
-```
-
-### Environment Variables for Production
 ```env
-# Production database
-DATABASE_URL=postgresql+asyncpg://user:pass@prod-db:5432/chat_agent
+DATABASE_URL=postgresql+asyncpg://user:password@localhost:5432/chat_agent
 
-# Security
-SECRET_KEY=production-secret-key
-ALLOWED_ORIGINS=https://yourdomain.com
+GEMINI_API_KEY=your_gemini_key
+GEMINI_MODEL=gemini-2.5-flash
 
-# Logging
-LOG_LEVEL=INFO
+MEM0_API_KEY=your_mem0_key
+
+SECRET_KEY=your_jwt_secret
+
+# Optional
+TAVILY_API_KEY=your_tavily_key
+SMTP_HOST=smtp.gmail.com
+SMTP_PORT=587
+SMTP_USER=you@gmail.com
+SMTP_PASSWORD=your_app_password
 ```
 
-## Troubleshooting
-
-### Common Issues
-
-**Database Connection Errors:**
-- Verify PostgreSQL is running
-- Check DATABASE_URL format
-- Ensure database exists
-
-**Gemini API Errors:**
-- Verify API key is valid
-- Check API quotas and limits
-- Ensure model name is correct
-
-**PDF Processing Issues:**
-- Ensure PDF_INDEX_DIR exists and is writable
-- Check file permissions
-- Verify PDF files are not corrupted
-
-**Email Sending Failures:**
-- Use App Passwords for Gmail
-- Check SMTP settings
-- Verify firewall/network access
-
-### Logging
-
-The application uses structured logging. Check logs for detailed error information:
+### Database
 
 ```bash
-# View logs in development
-tail -f app.log
+# Create the database
+createdb chat_agent
 
-# Set log level
-export LOG_LEVEL=DEBUG
+# Run migrations
+alembic upgrade head
 ```
 
-## Contributing
+### Run
 
-1. Fork the repository
-2. Create a feature branch
-3. Make your changes
-4. Add tests for new functionality
-5. Run the test suite
-6. Submit a pull request
+```bash
+uvicorn app.main:app --reload
+```
 
-## License
+API docs available at `http://localhost:8000/docs`
 
-This project is licensed under the MIT License - see the LICENSE file for details.
+---
 
-## Support
+## API Reference
 
-For issues and questions:
-- Create an issue on GitHub
-- Check the documentation
-- Review the API documentation at `/docs`
+### Authentication
+
+```http
+POST /users/register
+POST /users/login
+POST /users/forgot-password
+POST /users/reset-password
+```
+
+### Sessions
+
+```http
+POST   /sessions/          # Create a new chat session
+GET    /sessions/          # List all sessions for the current user
+GET    /sessions/{id}      # Get session with full message history
+DELETE /sessions/{id}      # Delete session and all associated data
+```
+
+### Chat
+
+```http
+POST /chat/
+Content-Type: application/json
+
+{
+  "message": "Search for the latest AI news and email me a summary",
+  "session_id": 1
+}
+```
+
+Response:
+```json
+{
+  "response": "I searched for the latest AI news and sent a summary to your inbox.",
+  "session_id": 1
+}
+```
+
+### Documents
+
+```http
+POST /documents/upload
+Content-Type: multipart/form-data
+
+file: <PDF file>
+session_id: 1       (optional)
+```
+
+---
+
+## MCP Server Configuration
+
+Add or remove external tool servers in `app/mcp/mcp_server.json`:
+
+```json
+{
+  "mcpServers": {
+    "my-server": {
+      "command": "python",
+      "args": ["path/to/server.py"],
+      "env": {
+        "API_KEY": "MY_API_KEY_ENV_VAR"
+      },
+      "is_active": true
+    },
+    "http-server": {
+      "transport": "http",
+      "url": "http://localhost:3000/mcp",
+      "is_active": true
+    }
+  }
+}
+```
+
+Set `"is_active": false` to disable a server without removing it. The `env` values are resolved from environment variables at startup.
+
+---
+
+## Agent State
+
+```python
+class AgentState(TypedDict):
+    messages: Annotated[list[BaseMessage], add_messages]
+    # Full conversation history (summary + memories + current message)
+
+    route: str
+    # Orchestrator decision: "direct", "tool", or "planner"
+
+    current_task: dict | None
+    # Active task from Planner: {"tool": "...", "args": {...}, "description": "..."}
+    # Set to None when the loop ends
+
+    results: list[str]
+    # Accumulated tool outputs — results[0] = first task, results[1] = second, etc.
+
+    response: str
+    # Final synthesized response from the Supervisor
+```
+
+---
+
+## Logs
+
+Key log markers to follow a request end-to-end:
+
+```
+🧭  Orchestrator | decision=PLANNER
+🗂️  Planner | iteration 0
+⚙️  Executor | executing task | tool=web_search
+📦  Executor | result [web_search]: ...
+✅  Planner | user request complete — ending loop
+🧠  Supervisor | aggregating 2 result(s)
+✅  Supervisor | aggregation complete
+```
+
+Set `LOG_LEVEL=DEBUG` in `.env` for verbose LLM call tracing.

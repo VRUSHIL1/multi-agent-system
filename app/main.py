@@ -1,4 +1,4 @@
-﻿import logging
+import logging
 import uvicorn
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
@@ -55,7 +55,7 @@ async def error_response_handler(request: Request, exc: ErrorResponse) -> JSONRe
 
 @app.get("/", include_in_schema=False)
 def read_root() -> dict:
-    return {"message": "Whatsapp agent is running."}
+    return {"message": "AI Agent is running."}
 
 
 @app.get("/health", include_in_schema=False)
@@ -69,4 +69,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-

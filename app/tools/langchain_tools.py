@@ -6,9 +6,9 @@ from pathlib import Path
 from langchain_core.tools import BaseTool
 from pydantic import BaseModel, Field
 
-from app.services.email_service import EmailService
-from app.services.pdf_service import PDFEmbeddingService, get_pdf_service
-from app.services.search_service import SearchService
+from app.services import EmailService
+from app.services import PDFEmbeddingService, get_pdf_service
+from app.services import SearchService
 
 
 class EmailInput(BaseModel):
@@ -53,14 +53,14 @@ class SearchTool(BaseTool):
             results = asyncio.run(self.search_service.search(query, max_results=max_results))
             if not results:
                 return "No search results found"
-            
+
             formatted_results = []
             for i, result in enumerate(results, 1):
                 title = result.get("title", "No title")
                 url = result.get("url", "No URL")
                 content = result.get("content", result.get("snippet", "No content"))
                 formatted_results.append(f"{i}. {title}\n   URL: {url}\n   Content: {content[:200]}...")
-            
+
             return "\n\n".join(formatted_results)
         except Exception as e:
             return f"Search failed: {str(e)}"

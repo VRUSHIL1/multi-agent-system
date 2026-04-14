@@ -8,13 +8,19 @@ from typing_extensions import TypedDict
 
 
 class AgentState(TypedDict):
-    """Shared state passed between Planner and Executor nodes."""
+    """Shared state passed between Orchestrator, Planner and Executor nodes."""
 
     # Full conversation history — add_messages reducer appends new messages
     messages: Annotated[list[BaseMessage], add_messages]
 
-    # Step-by-step plan produced by the Planner
-    plan: list[str]
+    # Routing decision from orchestrator: "direct", "tool", or "planner"
+    route: str
 
-    # Final synthesized response produced by the Executor
+    # Current task being generated/executed by Planner
+    current_task: dict | None
+
+    # Results from each executed task (accumulated)
+    results: list[str]
+
+    # Final synthesized response produced by the Supervisor
     response: str
