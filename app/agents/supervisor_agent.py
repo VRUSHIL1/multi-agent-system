@@ -22,8 +22,8 @@ from langchain_core.tools import BaseTool
 from langchain_google_genai import ChatGoogleGenerativeAI
 from langgraph.graph.state import CompiledStateGraph
 
-from app.agents import build_agent_graph
-from app.agents import AgentState
+from app.agents.graph import build_agent_graph
+from app.agents.state import AgentState
 from app.common import settings
 from app.prompts import AGGREGATION_PROMPT
 from app.tools import get_langchain_tools, get_mcp_langchain_tools

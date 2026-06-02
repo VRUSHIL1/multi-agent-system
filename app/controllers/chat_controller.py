@@ -6,7 +6,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.common.responses import ErrorResponse, success_response
 from app.services.chat_service import ChatService
-from app.validation.chat_validation import ChatRequest
+from app.validation.chat_validation import ChatRequest, WhatsAppWebhookRequest
 
 
 class ChatController:
@@ -25,4 +25,26 @@ class ChatController:
             data={"response": response},
             message="Chat response generated successfully",
             status_code=200,
-        )
+        )
+
+    @staticmethod
+    async def handle_whatsapp_webhook(
+        request: WhatsAppWebhookRequest,
+        db: AsyncSession,
+        background_tasks: BackgroundTasks,
+    ) -> JSONResponse:
+        response = await ChatService.whatsapp_webhook_service(
+            request, db, background_tasks
+        )
+
+        if not response:
+            raise ErrorResponse(500, "Failed to generate WhatsApp response")
+
+        return JSONResponse(
+            status_code=200,
+            content={
+                "reply": response,
+                "chat_id": request.chat_id,
+                "message_id": request.message_id,
+            },
+        )

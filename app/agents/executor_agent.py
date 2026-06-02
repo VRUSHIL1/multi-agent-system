@@ -8,7 +8,7 @@ from langchain_core.messages import AIMessage
 from langchain_core.tools import BaseTool
 from langchain_google_genai import ChatGoogleGenerativeAI
 
-from app.agents import AgentState
+from app.agents.state import AgentState
 
 logger = logging.getLogger(__name__)
 

@@ -1,311 +1,328 @@
-# AI Chat Agent — Dynamic Multi-Agent System
+# Chat Agent
 
-A production-grade AI chatbot built with **FastAPI** and **LangGraph** that uses a dynamic multi-agent loop to plan and execute complex tasks step by step. Powered by **Google Gemini 2.5 Flash**, it supports document Q&A, web search, email dispatch, WhatsApp, YouTube, and any external tool via the **Model Context Protocol (MCP)**.
+FastAPI backend for an AI chat agent with authenticated users, chat sessions, document upload and search, web search, email sending, WhatsApp webhook support, and MCP-based external tools.
 
----
-
-## Architecture
-
-The system routes every incoming message through a four-node LangGraph pipeline:
-
-```
-User Message
-     |
-     v
-SUPERVISOR AGENT
-  - Validates session
-  - Fetches conversation summary
-  - Retrieves relevant Mem0 memories
-  - Invokes LangGraph
-     |
-     v
-ORCHESTRATOR AGENT
-  - Decides route: DIRECT / TOOL / PLANNER
-     |
-     +---> DIRECT (simple Q&A, no tools needed)
-     |          |
-     |          v
-     |        END
-     |
-     +---> TOOL (single, known tool call)
-     |          |
-     |          v
-     |       EXECUTOR --> END
-     |
-     +---> PLANNER (complex multi-step task)
-                |
-                v
-           PLANNER AGENT
-             - Sees accumulated results so far
-             - Generates ONE task at a time
-                |
-                v
-           EXECUTOR AGENT
-             - Runs the tool
-             - Injects placeholders (e.g. {step_1.result})
-             - Appends result to state
-                |
-                +---> loop back to PLANNER (if more steps needed)
-                |
-                +---> END (when Planner responds DONE)
-     |
-     v
-SUPERVISOR AGGREGATION
-  - Synthesizes all results into a final response
-```
-
-The key design choice is that the **Planner never pre-plans the full sequence**. It sees what has been done so far and decides the single next action, making the loop adaptive to real tool outputs.
-
----
+The application stores users, sessions, messages, uploaded documents, and rolling chat summaries in PostgreSQL. Each chat request is handled by a LangGraph agent pipeline backed by Google Gemini, local LangChain tools, optional MCP tools, Mem0 memory, and background conversation summarization.
 
 ## Features
 
-### Dynamic Task Planning
-- Generates one task per iteration based on accumulated results
-- Supports placeholder injection — `{step_1.result}` in tool args is automatically replaced with the actual output from step 1
-- Detects completion and exits the loop cleanly
-- Hard cap of 20 iterations to prevent runaway loops
+- User registration, login, JWT authentication, password reset codes, and current-user lookup.
+- Per-user chat sessions with message persistence and history retrieval.
+- Agent routing through orchestrator, planner, executor, and supervisor nodes.
+- Direct answers, single-tool execution, and dynamic multi-step plans.
+- Built-in tools for web search, SMTP email, and PDF semantic search.
+- PDF uploads saved under `data/uploads` and indexed in the background with FAISS.
+- Session summaries generated after every 10 unsummarized user/assistant messages.
+- Mem0 semantic memory scoped by session id.
+- MCP tool loading from `app/mcp/mcp_server.json` at application startup.
+- WhatsApp webhook endpoint that maps external chats to internal chat sessions.
+- Scalar API reference at `/docs` and OpenAPI schema at `/openapi.json`.
 
-### Dual Memory System
-**Conversation Summarization**
-- Every 10 messages, the last unsummarized chunk is sent to Gemini 2.0 Flash Lite to produce an updated rolling summary
-- Runs in a FastAPI `BackgroundTask` so it never blocks the response
-- Summary is injected into the next request as context
+## Architecture
 
-**Semantic Memory (Mem0)**
-- Stores user messages as vector memories scoped to each session
-- Before each request, retrieves the most relevant past memories and injects them into the prompt
-- Keeps long-term context alive across many sessions without a growing message list
+```text
+Client
+  |
+  v
+FastAPI routers
+  |
+  v
+Controllers
+  |
+  v
+Services
+  |
+  +-- PostgreSQL via SQLAlchemy async sessions
+  +-- BackgroundTasks for PDF indexing and summarization
+  +-- Mem0 for semantic memories
+  |
+  v
+SupervisorAgent
+  |
+  v
+LangGraph
+  |
+  +-- OrchestratorAgent: chooses direct, tool, or planner route
+  +-- PlannerAgent: creates one next task at a time
+  +-- ExecutorAgent: invokes a LangChain or MCP tool
+  +-- Supervisor aggregation: turns task results into the final reply
+```
 
-### Document Q&A
-- Upload PDF files via the `/documents/upload` endpoint
-- Text is extracted with PyMuPDF, chunked, and embedded using Google Generative AI embeddings
-- Embeddings are stored in per-file FAISS indexes
-- The `search_pdf` tool searches across all uploaded documents at query time and returns ranked chunks
-
-### MCP Tool Integration
-- Connects to any MCP-compatible server at startup via `mcp_server.json`
-- Currently configured servers: **WhatsApp**, **YouTube**, **Database**
-- Tools are loaded once and cached — no subprocess spawned per request
-- Add new external capabilities by editing `mcp_server.json`, no code changes needed
-
-### Built-in LangChain Tools
-| Tool | Description |
-|------|-------------|
-| `web_search` | Real-time web search via Tavily or Serper |
-| `send_email` | Send plain-text or HTML email via SMTP |
-| `search_pdf` | Semantic search across all uploaded PDFs |
-
-### Orchestrator Guard Rails
-- Blocks empty messages and inputs over 8,000 characters
-- Detects and rejects prompt injection attempts (regex-based)
-- Structured output routing — no brittle JSON regex parsing
-- Retry with exponential backoff on all LLM calls (tenacity)
-- Per-call timeouts (20s routing, 30s aggregation, 30s tool execution)
-- Structured JSON trace logged per request for observability
-
-### Session & User Management
-- JWT-based authentication with password reset flow
-- Multiple chat sessions per user, each with independent context
-- All messages stored in PostgreSQL with `is_summarized` flag for efficient chunking
-- Session-scoped documents and summaries with cascade delete
-
----
+The planner does not create a full plan up front. It reads the accumulated tool results and decides only the next task. The executor can inject previous results into later tool arguments with placeholders such as `{step_1.result}`.
 
 ## Tech Stack
 
-| Layer | Technology |
-|-------|------------|
-| API | FastAPI, Uvicorn |
-| LLM | Google Gemini 2.5 Flash (`langchain-google-genai`) |
-| Agent orchestration | LangGraph, LangChain |
-| Long-term memory | Mem0 |
-| Vector search | FAISS (`faiss-cpu`) |
-| Embeddings | Google Generative AI / sentence-transformers |
-| PDF parsing | PyMuPDF |
-| External tools | MCP (`langchain-mcp-adapters`) |
-| Database | PostgreSQL, SQLAlchemy (async), asyncpg |
+| Area | Libraries |
+| --- | --- |
+| API | FastAPI, Uvicorn, Scalar |
+| Database | PostgreSQL, SQLAlchemy async, asyncpg, psycopg2 for Alembic |
 | Migrations | Alembic |
-| Auth | python-jose (JWT), passlib |
-| Retry / resilience | tenacity |
+| LLM and agents | Google Gemini, LangChain, LangGraph |
+| Tools | LangChain tools, MCP adapters |
+| Search | Tavily or Serper-compatible search service |
+| PDF processing | PyMuPDF, sentence-transformers, FAISS |
+| Memory | Mem0 |
+| Auth | python-jose, passlib |
+| HTTP and resilience | httpx, tenacity |
 
----
+## Project Layout
 
-## Project Structure
-
-```
+```text
 chat-agent/
-├── app/
-│   ├── agents/
-│   │   ├── graph.py               # LangGraph definition and routing logic
-│   │   ├── orchestrator_agent.py  # Entry point — routes DIRECT / TOOL / PLANNER
-│   │   ├── planner_agent.py       # Generates one task per iteration
-│   │   ├── executor_agent.py      # Executes tools with retry + placeholder injection
-│   │   ├── supervisor_agent.py    # Initializes graph, aggregates final response
-│   │   └── state.py               # Shared AgentState TypedDict
-│   ├── services/
-│   │   ├── chat_service.py        # Orchestrates memory, agent, and DB writes
-│   │   ├── summary_service.py     # Rolling summarization every 10 messages
-│   │   ├── mem0_service.py        # Mem0 add / search wrappers
-│   │   ├── pdf_embedding_service.py  # PDF chunking, embedding, FAISS indexing
-│   │   └── email_service.py       # SMTP email dispatch
-│   ├── tools/
-│   │   ├── langchain_tools.py     # EmailTool, SearchTool, PDFSearchTool
-│   │   └── mcp_tools.py           # Loads MCP tools as LangChain BaseTool instances
-│   ├── mcp/
-│   │   ├── client.py              # MCPClient — connects, caches, and calls MCP servers
-│   │   └── mcp_server.json        # MCP server config (WhatsApp, YouTube, Database)
-│   ├── models/
-│   │   └── model.py               # SQLAlchemy models: User, ChatSession, ChatMessage,
-│   │                              #   Document, ChatSummary
-│   ├── routers/                   # FastAPI route definitions
-│   ├── controllers/               # Request handlers
-│   ├── validation/                # Pydantic request/response schemas
-│   ├── prompts/                   # All LLM system prompts
-│   ├── database.py                # Async engine, session factory, lifespan hook
-│   ├── main.py                    # FastAPI app setup
-│   └── common/                   # Settings, shared utilities
-├── alembic/                       # Database migrations
-├── pyproject.toml
-└── .env
+  app/
+    agents/          LangGraph state, graph builder, orchestrator, planner, executor, supervisor
+    common/          Settings, standard responses, password-reset email helper
+    controllers/     HTTP request handlers
+    mcp/             MCP client and server configuration
+    models/          SQLAlchemy models
+    prompts/         LLM system prompts
+    routers/         FastAPI route definitions
+    services/        Business logic for chat, users, sessions, documents, search, PDF, memory
+    tools/           Built-in LangChain tools and MCP tool loader
+    utils/           JWT, password hashing, auth middleware helpers
+    validation/      Pydantic request and response schemas
+    database.py      Async engine/session setup and FastAPI lifespan startup/shutdown
+    main.py          FastAPI app entry point
+  alembic/           Database migrations
+  pyproject.toml     Python package metadata and dependencies
+  uv.lock            Locked dependency versions
 ```
 
----
+## Requirements
 
-## Setup
+- Python 3.13 or newer.
+- PostgreSQL.
+- Google Gemini API key.
+- Mem0 API key for chat memory.
+- A cached or downloadable `sentence-transformers/all-MiniLM-L6-v2` model for PDF indexing.
+- `SEARCH_PROVIDER` set to `tavily` or `serper`.
+- SMTP credentials for password reset and the `send_email` tool.
+- Optional MCP servers configured in `app/mcp/mcp_server.json`.
 
-### Prerequisites
-- Python 3.13+
-- PostgreSQL 12+
-- Google Gemini API key
-- (Optional) Tavily or Serper API key for web search
-- (Optional) Gmail SMTP credentials for the email tool
-- (Optional) Mem0 API key for semantic memory
+## Environment Variables
 
-### Install
+Create a `.env` file in the project root. These names match `app/common/settings.py`.
+
+```env
+DATABASE_URL=postgresql+asyncpg://postgres:password@localhost:5432/chat_agent
+
+SECRET_KEY=change-this-secret
+
+GEMINI_API_KEY=your-gemini-api-key
+GEMINI_MODEL=gemini-2.5-flash
+
+MEM0_API_KEY=your-mem0-api-key
+
+SEARCH_PROVIDER=tavily
+TAVILY_API_KEY=your-tavily-api-key
+SERPER_API_KEY=your-serper-api-key
+
+SMTP_HOST=smtp.gmail.com
+SMTP_PORT=587
+SMTP_USERNAME=you@example.com
+SMTP_PASSWORD=your-smtp-password
+SMTP_FROM=you@example.com
+
+PDF_INDEX_DIR=data/indexes
+PDF_CHUNK_SIZE=1000
+PDF_CHUNK_OVERLAP=150
+
+# Optional. Used by POST /whatsapp/webhook.
+WHATSAPP_WEBHOOK_USER_ID=1
+```
+
+`TAVILY_API_KEY` and `SERPER_API_KEY` are optional at settings load time, but the selected `SEARCH_PROVIDER` must have a working key when `web_search` is called. The SMTP variables are loaded when the built-in email tool is created, so keep them configured for normal chat-agent startup.
+
+## Installation
+
+This repository includes `uv.lock`, so `uv` is the recommended installer.
+
+```bash
+uv sync
+```
+
+Equivalent pip workflow:
 
 ```bash
 python -m venv .venv
 
-# Windows
-.\.venv\Scripts\activate
+# Windows PowerShell
+.\.venv\Scripts\Activate.ps1
 
-# macOS / Linux
+# macOS/Linux
 source .venv/bin/activate
 
 pip install -e .
 ```
 
-### Environment
+## Database
 
-Create a `.env` file in the project root:
-
-```env
-DATABASE_URL=postgresql+asyncpg://user:password@localhost:5432/chat_agent
-
-GEMINI_API_KEY=your_gemini_key
-GEMINI_MODEL=gemini-2.5-flash
-
-MEM0_API_KEY=your_mem0_key
-
-SECRET_KEY=your_jwt_secret
-
-# Optional
-TAVILY_API_KEY=your_tavily_key
-SMTP_HOST=smtp.gmail.com
-SMTP_PORT=587
-SMTP_USER=you@gmail.com
-SMTP_PASSWORD=your_app_password
-```
-
-### Database
+Create the PostgreSQL database, then run migrations.
 
 ```bash
-# Create the database
 createdb chat_agent
+uv run alembic upgrade head
+```
 
-# Run migrations
+If you are not using `uv`, run:
+
+```bash
 alembic upgrade head
 ```
 
-### Run
+Alembic reads `DATABASE_URL` from `.env` and converts the async PostgreSQL URL to a psycopg2 URL for migrations.
+
+## Run
+
+```bash
+uv run uvicorn app.main:app --reload
+```
+
+Without `uv`:
 
 ```bash
 uvicorn app.main:app --reload
 ```
 
-API docs available at `http://localhost:8000/docs`
+Useful URLs:
 
----
+- API health: `http://localhost:8000/health`
+- Scalar API reference: `http://localhost:8000/docs`
+- OpenAPI schema: `http://localhost:8000/openapi.json`
 
-## API Reference
+## API Overview
 
-### Authentication
+Most session endpoints require a bearer token returned by `/users/login`.
+
+### Users
 
 ```http
 POST /users/register
 POST /users/login
+GET  /users/get
 POST /users/forgot-password
 POST /users/reset-password
+```
+
+Register:
+
+```json
+{
+  "name": "Ada Lovelace",
+  "email": "ada@example.com",
+  "password": "password123"
+}
+```
+
+Login:
+
+```json
+{
+  "email": "ada@example.com",
+  "password": "password123"
+}
 ```
 
 ### Sessions
 
 ```http
-POST   /sessions/          # Create a new chat session
-GET    /sessions/          # List all sessions for the current user
-GET    /sessions/{id}      # Get session with full message history
-DELETE /sessions/{id}      # Delete session and all associated data
+POST   /sessions/
+GET    /sessions/
+GET    /sessions/{session_id}
+DELETE /sessions/{session_id}
+GET    /sessions/history/{session_id}
+GET    /sessions/user/{user_id}?page=1&limit=10&search=term
+```
+
+Create a session:
+
+```json
+{
+  "title": "Research notes"
+}
 ```
 
 ### Chat
 
 ```http
-POST /chat/
-Content-Type: application/json
-
-{
-  "message": "Search for the latest AI news and email me a summary",
-  "session_id": 1
-}
+POST /chat
 ```
 
-Response:
 ```json
 {
-  "response": "I searched for the latest AI news and sent a summary to your inbox.",
-  "session_id": 1
+  "session_id": 1,
+  "message": "Search my uploaded PDFs for warranty terms."
 }
 ```
+
+The chat service:
+
+1. Verifies the session exists.
+2. Stores the user message.
+3. Loads the current rolling summary.
+4. Searches Mem0 for relevant session memories.
+5. Runs the Supervisor/LangGraph agent pipeline.
+6. Stores the assistant response.
+7. Schedules summary refresh in the background.
+
+### WhatsApp Webhook
+
+```http
+POST /whatsapp/webhook
+```
+
+```json
+{
+  "chat_id": "919999999999",
+  "message_id": "wamid.example",
+  "message": "Summarize the latest message",
+  "sender_name": "Ada"
+}
+```
+
+The webhook finds or creates a session titled `WhatsApp: <sender or chat_id> (<chat_id>)`. If `WHATSAPP_WEBHOOK_USER_ID` is set, that user owns the session. Otherwise the first user in the database is used.
 
 ### Documents
 
 ```http
-POST /documents/upload
-Content-Type: multipart/form-data
-
-file: <PDF file>
-session_id: 1       (optional)
+POST   /documents/upload
+GET    /documents/
+DELETE /documents/{document_id}
 ```
 
----
+Upload expects multipart form data:
 
-## MCP Server Configuration
+- `file`: required uploaded file.
+- `session_id`: optional session id.
 
-Add or remove external tool servers in `app/mcp/mcp_server.json`:
+PDF files are indexed in a FastAPI background task. The index file is written to `PDF_INDEX_DIR` as `<document_id>.faiss` with matching JSON metadata. The `search_pdf` tool searches all available FAISS indexes.
+
+## Built-In Tools
+
+| Tool | Purpose | Important args |
+| --- | --- | --- |
+| `web_search` | Search the web with the configured provider. | `query`, `max_results` |
+| `send_email` | Send plain text or HTML email over SMTP. | `to_address`, `subject`, `body`, `is_html` |
+| `search_pdf` | Search indexed uploaded PDFs. | `query`, `top_k` |
+
+MCP tools are appended to this list at startup after `mcp_client.connect_all()` succeeds.
+
+## MCP Configuration
+
+External MCP servers are configured in `app/mcp/mcp_server.json`.
 
 ```json
 {
   "mcpServers": {
-    "my-server": {
+    "example-stdio": {
       "command": "python",
       "args": ["path/to/server.py"],
       "env": {
-        "API_KEY": "MY_API_KEY_ENV_VAR"
+        "API_KEY": "API_KEY_ENV_VAR_NAME"
       },
       "is_active": true
     },
-    "http-server": {
+    "example-http": {
       "transport": "http",
       "url": "http://localhost:3000/mcp",
       "is_active": true
@@ -314,45 +331,74 @@ Add or remove external tool servers in `app/mcp/mcp_server.json`:
 }
 ```
 
-Set `"is_active": false` to disable a server without removing it. The `env` values are resolved from environment variables at startup.
+Notes:
 
----
+- Set `is_active` to `false` to skip a server without deleting it.
+- For `env`, values are treated as environment variable names when matching variables exist.
+- Stdio servers are launched by `MultiServerMCPClient`.
+- Tools are loaded once and cached during the FastAPI lifespan startup.
 
-## Agent State
+## Agent Flow
+
+The shared LangGraph state is defined in `app/agents/state.py`:
 
 ```python
 class AgentState(TypedDict):
     messages: Annotated[list[BaseMessage], add_messages]
-    # Full conversation history (summary + memories + current message)
-
     route: str
-    # Orchestrator decision: "direct", "tool", or "planner"
-
     current_task: dict | None
-    # Active task from Planner: {"tool": "...", "args": {...}, "description": "..."}
-    # Set to None when the loop ends
-
     results: list[str]
-    # Accumulated tool outputs — results[0] = first task, results[1] = second, etc.
-
     response: str
-    # Final synthesized response from the Supervisor
 ```
 
----
+Routing behavior:
 
-## Logs
+- `direct`: the orchestrator calls Gemini for a normal answer and ends the graph.
+- `tool`: the orchestrator selects a single known tool and sends it to the executor.
+- `planner`: the planner creates one task, the executor runs it, and the graph loops until the planner returns `DONE` or reaches 20 iterations.
 
-Key log markers to follow a request end-to-end:
+Guardrails in the orchestrator reject empty messages, messages over 8,000 characters, and common prompt-injection patterns. LLM routing uses structured output, retries, and a 20-second timeout. Tool execution retries twice with a 30-second timeout per attempt.
 
-```
-🧭  Orchestrator | decision=PLANNER
-🗂️  Planner | iteration 0
-⚙️  Executor | executing task | tool=web_search
-📦  Executor | result [web_search]: ...
-✅  Planner | user request complete — ending loop
-🧠  Supervisor | aggregating 2 result(s)
-✅  Supervisor | aggregation complete
-```
+## Data Model
 
-Set `LOG_LEVEL=DEBUG` in `.env` for verbose LLM call tracing.
+Core tables:
+
+- `users`: account data, hashed password, password reset code, reset expiry.
+- `chat_sessions`: user-owned session records.
+- `chat_messages`: user and assistant messages, including `is_summarized`.
+- `documents`: uploaded file metadata and optional session link.
+- `chat_summaries`: rolling summary per session.
+
+Session deletion cascades to messages, documents, and summaries through SQLAlchemy relationships.
+
+## Development Notes
+
+- The app performs a database connectivity check during lifespan startup.
+- PDF embedding service is initialized at startup and again lazily if needed.
+- MCP startup failures are logged as warnings so the API can still run without MCP tools.
+- Password reset email uses `app/common/user_email.py`.
+- The general `send_email` tool uses `app/services/email_service.py`.
+- Standard successful JSON responses use `{ "status_code": ..., "message": ..., "data": ... }`.
+- Custom `ErrorResponse` exceptions are converted to `{ "status_code": ..., "message": ... }`.
+
+## Troubleshooting
+
+`DATABASE_URL environment variable is not set`
+
+Set `DATABASE_URL` in `.env`. The app requires an async URL such as `postgresql+asyncpg://...`.
+
+`GEMINI_API_KEY environment variable is not set`
+
+Set `GEMINI_API_KEY` before starting the app or running chat requests.
+
+`Tavily API key not configured` or `Serper API key not configured`
+
+Set `SEARCH_PROVIDER` to the provider you want and provide its matching API key.
+
+`No documents have been uploaded yet`
+
+Upload a PDF through `/documents/upload`, then wait for the background indexing task to finish.
+
+MCP tools are missing
+
+Check `app/mcp/mcp_server.json`, make sure the server has `is_active: true`, and verify the configured command or URL can be reached from the machine running FastAPI.

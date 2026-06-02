@@ -9,7 +9,7 @@ from langchain_core.messages import HumanMessage, SystemMessage
 from langchain_core.tools import BaseTool
 from langchain_google_genai import ChatGoogleGenerativeAI
 
-from app.agents import AgentState
+from app.agents.state import AgentState
 from app.prompts import PLANNER_DYNAMIC_PROMPT
 
 logger = logging.getLogger(__name__)

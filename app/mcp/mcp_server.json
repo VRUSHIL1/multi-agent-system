@@ -4,7 +4,7 @@
       "command": "C:\\Users\\HP\\.local\\bin\\uv",
       "args": [
         "--directory",
-        "D:\\whatsapp-mcp\\whatsapp-mcp-server",
+        "E:\\whatsapp-mcp\\whatsapp-mcp-server",
         "run",
         "main.py"
       ],
@@ -14,7 +14,7 @@
       "command": "C:\\Users\\HP\\.local\\bin\\uv",
       "args": [
         "--directory",
-        "D:\\Youtube-MCP",
+        "E:\\Youtube-MCP",
         "run",
         "python",
         "server.py"
@@ -25,9 +25,9 @@
       "is_active": true
     },
     "database-mcp": {
-      "command": "D:\\database-mcp\\venv\\Scripts\\python.exe",
+      "command": "E:\\database-mcp\\venv\\Scripts\\python.exe",
       "args": [
-        "D:\\database-mcp\\main.py"
+        "E:\\database-mcp\\main.py"
       ],
       "is_active": true
     }

@@ -21,3 +21,9 @@ class ChatMessageRead(BaseModel):
 
 class ChatResponse(BaseModel):
     response: str
+
+class WhatsAppWebhookRequest(BaseModel):
+    chat_id: str = Field(min_length=1)
+    message_id: str = Field(min_length=1)
+    message: str = Field(min_length=1)
+    sender_name: str | None = None

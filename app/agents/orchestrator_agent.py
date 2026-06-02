@@ -382,8 +382,21 @@ class OrchestratorAgent:
             return args  # no schema — pass through
 
         try:
-            validated = schema(**args)
-            return validated.dict()
+            if isinstance(schema, dict):
+                return args
+
+            if isinstance(schema, type) and issubclass(schema, BaseModel):
+                validated = schema.model_validate(args)
+            elif callable(schema):
+                validated = schema(**args)
+            else:
+                return args
+
+            if isinstance(validated, BaseModel):
+                return validated.model_dump()
+            if isinstance(validated, dict):
+                return validated
+            return args
         except Exception as exc:  # noqa: BLE001
             logger.warning(
                 "⚠️  [%s] Tool arg validation failed for '%s': %s — using raw args",
