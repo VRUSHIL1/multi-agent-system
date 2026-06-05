@@ -24,3 +24,9 @@ class AgentState(TypedDict):
 
     # Final synthesized response produced by the Supervisor
     response: str
+
+    # WhatsApp message metadata (None for regular web chat)
+    whatsapp_message_id: str | None
+    whatsapp_chat_id: str | None
+    whatsapp_sender_name: str | None
+    whatsapp_sender_phone: str | None

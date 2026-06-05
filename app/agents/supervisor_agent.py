@@ -98,15 +98,23 @@ class SupervisorAgent:
         session_id: int,
         summary: str = "",
         memory_context: str = "",
+        whatsapp_message_id: str | None = None,
+        whatsapp_chat_id: str | None = None,
+        whatsapp_sender_name: str | None = None,
+        whatsapp_sender_phone: str | None = None,
     ) -> str:
         """
         Run the full pipeline and return a final response string.
 
         Args:
-            message:        Latest user message.
-            session_id:     LangGraph thread ID for checkpointing.
-            summary:        Optional prior-conversation summary.
-            memory_context: Optional long-term memory snippets.
+            message:                Latest user message.
+            session_id:             LangGraph thread ID for checkpointing.
+            summary:                Optional prior-conversation summary.
+            memory_context:         Optional long-term memory snippets.
+            whatsapp_message_id:    WhatsApp message ID (if from WhatsApp).
+            whatsapp_chat_id:       WhatsApp chat ID (if from WhatsApp).
+            whatsapp_sender_name:   WhatsApp sender name (if from WhatsApp).
+            whatsapp_sender_phone:  WhatsApp sender phone (if from WhatsApp).
 
         Returns:
             Aggregated reply string, or DEFAULT_FALLBACK_RESPONSE on failure.
@@ -115,8 +123,25 @@ class SupervisorAgent:
 
         logger.info("🎯 Supervisor | session=%s | %.120s", session_id, message)
 
+        # Log WhatsApp context if present
+        if whatsapp_message_id:
+            logger.info(
+                "📱 WhatsApp Context | message_id=%s | chat_id=%s | sender=%s",
+                whatsapp_message_id,
+                whatsapp_chat_id,
+                whatsapp_sender_name,
+            )
+
         # 1. Build state
-        initial_state = self._build_initial_state(message, summary, memory_context)
+        initial_state = self._build_initial_state(
+            message,
+            summary,
+            memory_context,
+            whatsapp_message_id,
+            whatsapp_chat_id,
+            whatsapp_sender_name,
+            whatsapp_sender_phone,
+        )
 
         # 2. Run LangGraph
         try:
@@ -156,6 +181,10 @@ class SupervisorAgent:
         message: str,
         summary: str,
         memory_context: str,
+        whatsapp_message_id: str | None = None,
+        whatsapp_chat_id: str | None = None,
+        whatsapp_sender_name: str | None = None,
+        whatsapp_sender_phone: str | None = None,
     ) -> AgentState:
         """Construct the initial LangGraph state."""
         messages: list[BaseMessage] = []
@@ -177,6 +206,10 @@ class SupervisorAgent:
             current_task=None,
             results=[],
             response="",
+            whatsapp_message_id=whatsapp_message_id,
+            whatsapp_chat_id=whatsapp_chat_id,
+            whatsapp_sender_name=whatsapp_sender_name,
+            whatsapp_sender_phone=whatsapp_sender_phone,
         )
 
     async def _aggregate(self, user_query: str, results: list[str]) -> str:

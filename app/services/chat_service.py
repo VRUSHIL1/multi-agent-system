@@ -9,6 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.agents.supervisor_agent import SupervisorAgent
 from app.database import get_session_local
+from app.mcp.client import call_mcp_tool
 from app.models.model import ChatMessage, ChatSession, User
 from app.services.mem0_service import Mem0Service
 from app.services.summary_service import SummaryService
@@ -23,6 +24,10 @@ class ChatService:
         request: ChatRequest,
         db: AsyncSession,
         background_tasks: BackgroundTasks,
+        whatsapp_message_id: str | None = None,
+        whatsapp_chat_id: str | None = None,
+        whatsapp_sender_name: str | None = None,
+        whatsapp_sender_phone: str | None = None,
     ) -> str | None:
         if not request.session_id:
             raise HTTPException(
@@ -65,6 +70,10 @@ class ChatService:
                 session_id=session.id,
                 summary=summary,
                 memory_context=memory_context,
+                whatsapp_message_id=whatsapp_message_id,
+                whatsapp_chat_id=whatsapp_chat_id,
+                whatsapp_sender_name=whatsapp_sender_name,
+                whatsapp_sender_phone=whatsapp_sender_phone,
             )
         except Exception as exc:  # pragma: no cover - surface config errors
             raise HTTPException(
@@ -98,11 +107,62 @@ class ChatService:
         background_tasks: BackgroundTasks,
     ) -> str | None:
         session = await ChatService._get_or_create_whatsapp_session(request, db)
-        return await ChatService.chat_service(
-            ChatRequest(session_id=session.id, message=request.message),
-            db,
-            background_tasks,
+
+        await ChatService._call_whatsapp_tool(
+            "mark_messages_read",
+            {
+                "message_id": request.message_id,
+                "chat_jid": request.chat_id,
+            },
         )
+        await ChatService._call_whatsapp_tool(
+            "send_typing_indicator",
+            {
+                "recipient": request.chat_id,
+                "state": "composing",
+                "media": "text",
+            },
+        )
+
+        response: str | None = None
+        try:
+            response = await ChatService.chat_service(
+                ChatRequest(session_id=session.id, message=request.message),
+                db,
+                background_tasks,
+                whatsapp_message_id=request.message_id,
+                whatsapp_chat_id=request.chat_id,
+                whatsapp_sender_name=request.sender_name,
+                whatsapp_sender_phone=request.sender_phone,
+            )
+        finally:
+            await ChatService._call_whatsapp_tool(
+                "send_typing_indicator",
+                {
+                    "recipient": request.chat_id,
+                    "state": "paused",
+                    "media": "text",
+                },
+            )
+
+        if response:
+            await ChatService._call_whatsapp_tool(
+                "send_message",
+                {
+                    "recipient": request.chat_id,
+                    "message": response,
+                },
+            )
+
+        return response
+
+    @staticmethod
+    async def _call_whatsapp_tool(tool_name: str, arguments: dict) -> None:
+        try:
+            result = await call_mcp_tool("whatsapp", tool_name, arguments)
+            logger.info("WhatsApp MCP auto-call | tool=%s | result=%s", tool_name, result)
+        except Exception:
+             logger.exception("WhatsApp MCP auto-call failed | tool=%s", tool_name)
 
     @staticmethod
     async def _get_or_create_whatsapp_session(

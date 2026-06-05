@@ -11,7 +11,7 @@ from app.prompts.summary_prompt import SUMMARY_PROMPT
 logger = logging.getLogger(__name__)
 
 CHUNK_SIZE = 10
-_SUMMARY_MODEL = "gemini-2.0-flash-lite"
+_SUMMARY_MODEL = "gemini-2.5-flash"
 
 
 class SummaryService:

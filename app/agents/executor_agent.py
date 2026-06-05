@@ -62,10 +62,13 @@ class ExecutorAgent:
 
         # 4. Replace placeholders in tool args with actual results
         tool_args = self._inject_results_into_args(tool_args, state.get("results", []))
+        
+        # 5. Inject WhatsApp metadata into args (if present)
+        tool_args = self._inject_whatsapp_metadata(tool_args, state)
 
         logger.info("📥 Executor | tool_args: %s", tool_args)
 
-        # 5. Execute tool with retry + timeout
+        # 6. Execute tool with retry + timeout
         result_str = await self._execute_with_retry(tool, tool_args)
 
         logger.info(
@@ -185,6 +188,39 @@ class ExecutorAgent:
 
         result = process_value(args)
         # Ensure we always return a dict
+        return result if isinstance(result, dict) else args
+
+    @staticmethod
+    def _inject_whatsapp_metadata(
+        args: dict[str, Any], state: AgentState
+    ) -> dict[str, Any]:
+        """
+        Replace WhatsApp metadata placeholders in tool arguments.
+        Supports: {whatsapp_message_id}, {whatsapp_chat_id}, 
+                 {whatsapp_sender_name}, {whatsapp_sender_phone}
+        """
+        import re
+
+        def replace_whatsapp_placeholder(match):
+            field = match.group(1)
+            key = f"whatsapp_{field}"
+            value = state.get(key)
+            return value if value is not None else match.group(0)
+
+        def process_value(value: Any) -> Any:
+            if isinstance(value, str):
+                return re.sub(
+                    r"\{whatsapp_(message_id|chat_id|sender_name|sender_phone)\}",
+                    replace_whatsapp_placeholder,
+                    value,
+                )
+            elif isinstance(value, dict):
+                return {k: process_value(v) for k, v in value.items()}
+            elif isinstance(value, list):
+                return [process_value(v) for v in value]
+            return value
+
+        result = process_value(args)
         return result if isinstance(result, dict) else args
 
     def _build_response(

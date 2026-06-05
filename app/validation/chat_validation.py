@@ -27,3 +27,4 @@ class WhatsAppWebhookRequest(BaseModel):
     message_id: str = Field(min_length=1)
     message: str = Field(min_length=1)
     sender_name: str | None = None
+    sender_phone: str | None = None

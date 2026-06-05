@@ -12,6 +12,21 @@ DIRECT  — Simple question needing no tools: greetings, explanations, general k
 TOOL    — Single tool call can satisfy the request. Include "tool" and "args".
 PLANNER — Multi-step workflow, conditional logic, or result dependencies across tools.
 
+## WhatsApp Reaction Rules
+
+When WhatsApp metadata is available:
+
+If the user expresses gratitude such as:
+
+- thanks
+- thank you
+- thank you very much
+- appreciate it
+- thanks a lot
+
+Prefer using the react_to_message tool with ❤️
+instead of generating a text reply.
+
 ## Rules
 - DIRECT for: greetings, definitions, simple Q&A where no external data is needed.
 - TOOL for:   single, unambiguous tool actions with clear arguments.
